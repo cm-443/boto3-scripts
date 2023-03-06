@@ -73,7 +73,7 @@ def admin_handler(event, context):
                           <body>
                           <html><body style="font: 16px/1 Georgia, Serif;">
                           <h3>return {sql_result_two}</h3>
-                          <table rules="all" border="1" style="border-color: #666;" cellpadding="10"><thead><tr style="background: #eee;"><th>one</th><th>two</th><th>three</th></tr></thead><tbody>"""
+                          <table rules="all" border="1";" cellpadding="10"><thead><tr style="background: #eee;"><th>one</th><th>two</th><th>three</th></tr></thead><tbody>"""
         for row in formatted_output:
             BODY_HTML = BODY_HTML + "<tr>"
             for col in row:
