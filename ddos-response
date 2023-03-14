@@ -1,0 +1,105 @@
+import boto3
+from datetime import datetime, timedelta
+import time
+import requests
+import pytz
+
+#this script queries athena, writes the results to an s3 bucket in a csv file, edits the csv file so the IPs have a /32, and posts the s3 link to ms teams
+
+#creates the timestamp for the athena query, adjusts for daylight savings
+now = datetime.utcnow()
+est_tz = pytz.timezone('US/Eastern')
+is_dst = est_tz.dst(now)
+
+timestamp = ""
+if is_dst:
+    utc_time = now
+    utc_time_string = utc_time.strftime('%Y/%m/%d/%H')
+    timestamp = utc_time_string
+else:
+    if now.hour == 0:
+        now = now - timedelta(days=1)
+    now = now - timedelta(hours=1)
+    utc_time_string = now.strftime('%Y/%m/%d/%H')
+    timestamp = utc_time_string
+
+
+def lambda_handler(event, context):
+    client = boto3.client('athena')
+    response = client.start_query_execution(
+        QueryString=f"""SELECT httprequest.clientip, terminatingruleid, httprequest.uri, count(*) as numRequests FROM "classlink-main-waf"."waf_logs" where action = 'BLOCK' and datehour >= '{timestamp}' group by httprequest.clientip, httprequest.uri, terminatingruleid order by numRequests desc""",
+
+        ResultConfiguration={
+            'OutputLocation': 's3://lambda-test-s3-87542/'
+        }
+
+    )
+    queryExecutionId = response['QueryExecutionId']
+    bkey = queryExecutionId + ".csv"
+    b = "lambda-test-s3-87542"
+
+    while True:
+        query_status = client.get_query_execution(QueryExecutionId=queryExecutionId)['QueryExecution']['Status'][
+            'State']
+        if query_status == 'SUCCEEDED':
+            break
+        elif query_status == 'FAILED':
+            raise Exception('Query failed to run')
+        time.sleep(1)
+
+
+    # Connect to S3
+    s3 = boto3.client('s3')
+
+
+    # Retrieve the CSV file from the S3 bucket
+    response = s3.get_object(Bucket=b, Key=bkey)
+    csv_file = response['Body'].read()
+
+
+    # Convert the binary data to a string
+    csv_string = csv_file.decode()
+
+
+    # Split the string into a list of lines
+    lines = csv_string.split('\n')
+
+
+    # Modify the IP addresses in the file
+    for i, line in enumerate(lines):
+        if i != 0 and i != len(lines) - 1:  # Check if it's not the first line or the last line
+            columns = line.strip().split(',')
+            columns[0] = columns[0] + '/32'
+            lines[i] = ','.join(columns)
+
+
+    # Join the modified lines back into a single string
+    csv_string_modified = '\n'.join(lines)
+
+
+    # Convert the modified string back to binary data
+    csv_file_modified = csv_string_modified.encode()
+
+
+    # Write the modified file back to the S3 bucket
+    s3.put_object(Bucket=b, Key=bkey, Body=csv_file_modified)
+
+    s3Client = boto3.client('s3')
+    Y = s3Client.generate_presigned_url('get_object', Params={'Bucket': 'lambda-test-s3-87542', 'Key': bkey}, ExpiresIn=3600)
+    
+    # Prepare the message to be sent to Microsoft Teams
+    message = {
+        "@type": "MessageCard",
+        "@context": "https://schema.org/extensions",
+        "summary": "50k Flood Alert",
+        "title": "50k Flood Alert",
+        "text": "Athena Query Results:" + " " + Y,
+    }
+
+    #Send the message to the Microsoft Teams channel
+    headers = {'Content-Type': 'application/json'}
+    teams_url = "https://classlink.webhook.office.com/webhookb2/222eedca-a42f-413e-9983-018376272454@b5598d85-e412-4848-a74b-e5f5a1528984/IncomingWebhook/2fe9bb03f6984e6986ea3b0b7489a998/d6acf721-db54-48ee-b2ba-5534b8e6feab"
+    requests.post(teams_url, json=message, headers=headers)
+
+
+
