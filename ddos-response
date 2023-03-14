@@ -27,16 +27,16 @@ else:
 def lambda_handler(event, context):
     client = boto3.client('athena')
     response = client.start_query_execution(
-        QueryString=f"""SELECT httprequest.clientip, terminatingruleid, httprequest.uri, count(*) as numRequests FROM "classlink-main-waf"."waf_logs" where action = 'BLOCK' and datehour >= '{timestamp}' group by httprequest.clientip, httprequest.uri, terminatingruleid order by numRequests desc""",
+        QueryString=f"""insert_query_here with timestamp var""",
 
         ResultConfiguration={
-            'OutputLocation': 's3://lambda-test-s3-87542/'
+            'OutputLocation': 's3://enter-bucket-here/'
         }
 
     )
     queryExecutionId = response['QueryExecutionId']
     bkey = queryExecutionId + ".csv"
-    b = "lambda-test-s3-87542"
+    b = "enter-bucket-here"
 
     while True:
         query_status = client.get_query_execution(QueryExecutionId=queryExecutionId)['QueryExecution']['Status'][
@@ -85,7 +85,7 @@ def lambda_handler(event, context):
     s3.put_object(Bucket=b, Key=bkey, Body=csv_file_modified)
 
     s3Client = boto3.client('s3')
-    Y = s3Client.generate_presigned_url('get_object', Params={'Bucket': 'lambda-test-s3-87542', 'Key': bkey}, ExpiresIn=3600)
+    Y = s3Client.generate_presigned_url('get_object', Params={'Bucket': 'enter-bucket-here', 'Key': bkey}, ExpiresIn=3600)
     
     # Prepare the message to be sent to Microsoft Teams
     message = {
@@ -98,7 +98,7 @@ def lambda_handler(event, context):
 
     #Send the message to the Microsoft Teams channel
     headers = {'Content-Type': 'application/json'}
-    teams_url = "https://classlink.webhook.office.com/webhookb2/222eedca-a42f-413e-9983-018376272454@b5598d85-e412-4848-a74b-e5f5a1528984/IncomingWebhook/2fe9bb03f6984e6986ea3b0b7489a998/d6acf721-db54-48ee-b2ba-5534b8e6feab"
+    teams_url = "webhook.office.com/your-team-here"
     requests.post(teams_url, json=message, headers=headers)
 
 
